@@ -1,0 +1,5 @@
+flask
+pydantic
+python-dotenv
+requests
+supabase
