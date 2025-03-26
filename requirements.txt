@@ -3,5 +3,5 @@ pydantic
 python-dotenv
 requests
 supabase
-vercel-wsgi==0.7.0
-Werkzeug>=2.1  # You can then use a newer Werkzeug here if desired.
+serverless-wsgi==1.7.7
+Werkzeug==2.0.3
