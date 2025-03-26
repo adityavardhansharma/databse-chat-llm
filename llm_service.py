@@ -140,7 +140,7 @@ def generate_response(query, user_data=None):
 You are a helpful database assistant. You are provided with a query and raw user data in JSON format (which conforms to the Pydantic User model). 
 Analyze the user data, decide which details are most relevant to answer the query, and then produce a clear, organized, and human-friendly response.
 Do not simply echo the raw JSON. Instead, format the answer using headings, bullet points, numbered lists, or any structure you deem appropriate.
-Keep your answer concise, factual, and professional.
+Keep your answer concise, factual, and professional. Format data based on what you think is the best way to show the data
         """
         messages = [
             {"role": "system", "content": system_prompt},
