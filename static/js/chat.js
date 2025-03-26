@@ -1,168 +1,279 @@
 document.addEventListener("DOMContentLoaded", function () {
+  // --- DOM Elements ---
   const chatForm = document.getElementById("chat-form");
   const userInput = document.getElementById("user-input");
-  const messagesContainer = document.getElementById("messages-container");
-  const themeToggle = document.getElementById("theme-toggle");
-  const clearChat = document.getElementById("clear-chat");
-  const suggestionChips = document.querySelectorAll(".suggestion-chip");
+  const messageStream = document.getElementById("message-stream");
+  const messageStreamWrapper = document.querySelector(".message-stream-wrapper");
+  const themeToggle = document.getElementById("theme-toggle"); // ID remains the same
+  const clearChatBtn = document.getElementById("clear-chat"); // ID remains the same
+  const suggestionPills = document.querySelectorAll(".suggestion-pill");
+  const htmlElement = document.documentElement;
 
-  // Theme toggle functionality
-  themeToggle.addEventListener("click", function() {
-    const html = document.documentElement;
-    const currentTheme = html.getAttribute("data-theme") || "light";
-    const newTheme = currentTheme === "light" ? "dark" : "light";
+  // --- State ---
+  let isFetching = false;
 
-    html.setAttribute("data-theme", newTheme);
-    localStorage.setItem("theme", newTheme);
+  // --- Theme Handling ---
+  const applyTheme = (theme, animate = false) => {
+    const oldTheme = htmlElement.getAttribute("data-theme");
+    htmlElement.setAttribute("data-theme", theme);
+    localStorage.setItem("theme", theme);
 
-    const icon = themeToggle.querySelector("i");
-    if (newTheme === "dark") {
-      icon.classList.remove("fa-moon");
-      icon.classList.add("fa-sun");
-    } else {
-      icon.classList.remove("fa-sun");
-      icon.classList.add("fa-moon");
+    if (animate && oldTheme !== theme) {
+      // Simple crossfade background animation
+      const tempDiv = document.createElement("div");
+      tempDiv.style.position = "fixed";
+      tempDiv.style.inset = "0";
+      tempDiv.style.backgroundColor =
+        oldTheme === "dark" ? "var(--bg-dark)" : "var(--bg-light)"; // Use CSS vars
+      tempDiv.style.zIndex = "-1";
+      document.body.appendChild(tempDiv);
+
+      gsap.to(tempDiv, {
+        opacity: 0,
+        duration: 0.6,
+        ease: "power1.inOut",
+        onComplete: () => tempDiv.remove(),
+      });
+
+      // Animate theme toggle button (optional subtle animation on the switch itself)
+      gsap.fromTo(
+        themeToggle, // Target the button itself
+        { scale: 0.95 }, // Subtle scale
+        {
+          scale: 1,
+          duration: 0.4, // Faster than original icon rotation
+          ease: "back.out(1.7)",
+        }
+      );
     }
+  };
+
+  const initializeTheme = () => {
+    const savedTheme = localStorage.getItem("theme");
+    const prefersDark =
+      window.matchMedia &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches;
+    applyTheme(savedTheme || (prefersDark ? "dark" : "light"));
+  };
+
+  themeToggle.addEventListener("click", () => {
+    const currentTheme = htmlElement.getAttribute("data-theme") || "light";
+    applyTheme(currentTheme === "light" ? "dark" : "light", true); // Animate the change
   });
 
-  // Apply saved theme or system preference
-  const savedTheme = localStorage.getItem("theme");
-  if (savedTheme) {
-    document.documentElement.setAttribute("data-theme", savedTheme);
-    if (savedTheme === "dark") {
-      themeToggle.querySelector("i").classList.replace("fa-moon", "fa-sun");
-    }
-  } else if (
-    window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
-  ) {
-    document.documentElement.setAttribute("data-theme", "dark");
-    themeToggle.querySelector("i").classList.replace("fa-moon", "fa-sun");
-  }
-
-  // Configure marked.js for markdown rendering
+  // --- Markdown Rendering ---
   marked.setOptions({
     gfm: true,
     breaks: true,
     smartLists: true,
-    highlight: function(code, lang) {
-      // We do not expect code blocks here.
-      return code;
-    }
+    highlight: (code) => code, // No syntax highlighting configured
   });
 
-  // For assistant messages, use marked to convert the markdown text
-  function renderMarkdown(content) {
-    // Use marked to parse the markdown into HTML and sanitize it.
+  const renderMarkdown = (content) => {
     const rawHtml = marked.parse(content);
-    return DOMPurify.sanitize(rawHtml);
-  }
+    return DOMPurify.sanitize(rawHtml, { USE_PROFILES: { html: true } });
+  };
 
-  // Auto-resize textarea as user types
-  userInput.addEventListener("input", function() {
-    this.style.height = "auto";
-    const newHeight = Math.min(this.scrollHeight, 120);
-    this.style.height = newHeight + "px";
-  });
+  // --- Textarea Auto-Resize ---
+  const autoResizeTextarea = () => {
+    userInput.style.height = "auto";
+    const scrollHeight = userInput.scrollHeight;
+    const maxHeight = parseInt(getComputedStyle(userInput).maxHeight, 10) || 120; // Match CSS
+    userInput.style.height = `${Math.min(scrollHeight, maxHeight)}px`;
+  };
+  userInput.addEventListener("input", autoResizeTextarea);
 
-  // Function to add a message to the chat
-  function addMessage(content, type) {
+  // --- Message Handling ---
+  const scrollToBottom = (delay = 0) => {
+    gsap.to(messageStreamWrapper, {
+      scrollTop: messageStream.scrollHeight,
+      duration: 0.5,
+      delay: delay,
+      ease: "power2.out",
+    });
+  };
+
+  const addMessage = (content, type) => {
     const messageDiv = document.createElement("div");
     messageDiv.className = `message ${type}-message`;
-    if (type === "thinking") {
-      messageDiv.id = "thinking-message";
-    }
+    if (type === "thinking") messageDiv.id = "thinking-message";
 
     const messageContent = document.createElement("div");
     messageContent.className = "message-content";
 
     if (type === "thinking") {
       messageContent.innerHTML = `
-        <div class="dots-container">
-          <div class="dot"></div>
-          <div class="dot"></div>
-          <div class="dot"></div>
-        </div>
-        <span>Processing query...</span>
+        <div class="pulsing-orb"></div>
+        <span>Thinking...</span>
       `;
     } else if (type === "assistant") {
-      // Render markdown; expect our structured list and cards.
       messageContent.innerHTML = renderMarkdown(content);
-    } else {
+    } else if (
+      type === "system" &&
+      !messageDiv.classList.contains("initial-system-message")
+    ) {
+      messageContent.innerHTML = `<p>${content}</p>`;
+    } else if (type !== "system") {
       messageContent.textContent = content;
+    } else {
+      messageContent.innerHTML = content; // Assume initial system message content is safe HTML
     }
 
-    messageDiv.appendChild(messageContent);
-    messagesContainer.appendChild(messageDiv);
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    return messageDiv;
-  }
+    if (!messageDiv.classList.contains("initial-system-message")) {
+      messageDiv.appendChild(messageContent);
+    } else {
+      return document.querySelector(".initial-system-message");
+    }
 
-  // Function to send message to backend
-  async function sendMessage(message) {
+    const xOffset = type === "user" ? 20 : -20;
+    gsap.set(messageDiv, { opacity: 0, scale: 0.95, x: xOffset, y: 15 }); // Slightly different entry
+
+    messageStream.appendChild(messageDiv);
+
+    gsap.to(messageDiv, {
+      opacity: 1,
+      scale: 1,
+      x: 0,
+      y: 0,
+      duration: 0.6,
+      ease: "elastic.out(1, 0.8)", // Slightly adjusted ease
+      onComplete: () => {
+        scrollToBottom(0.1);
+      },
+    });
+
+    return messageDiv;
+  };
+
+  // --- API Interaction ---
+  const sendMessage = async (message) => {
+    if (isFetching) return;
+    isFetching = true;
+    let thinkingMessage;
+
     try {
-      const thinkingMessage = addMessage("", "thinking");
+      thinkingMessage = addMessage("", "thinking");
+      scrollToBottom();
+
       const response = await fetch("/chat", {
         method: "POST",
-        headers: {"Content-Type": "application/json"},
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: message }),
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      if (thinkingMessage) {
+        gsap.to(thinkingMessage, {
+          opacity: 0,
+          scale: 0.8,
+          height: 0,
+          paddingTop: 0, // Animate padding
+          paddingBottom: 0,
+          marginTop: 0, // Animate margin
+          marginBottom: 0,
+          duration: 0.4,
+          ease: "power1.in",
+          onComplete: () => thinkingMessage.remove(),
+        });
       }
+
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
-      thinkingMessage.remove();
 
       if (data.error) {
-        addMessage(`I couldn't process that query. Error: ${data.error}`, "system");
+        addMessage(`Error: ${data.error}`, "system");
       } else {
         addMessage(data.response, "assistant");
       }
     } catch (error) {
-      console.error("Error:", error);
-      const thinkingMessage = document.getElementById("thinking-message");
-      if (thinkingMessage) {
-        thinkingMessage.remove();
-      }
-      addMessage("I encountered an error processing your request. Please try again.", "system");
+      console.error("Error sending message:", error);
+      const currentThinking = document.getElementById("thinking-message");
+      if (currentThinking) currentThinking.remove();
+      addMessage("Failed to connect. Please try again.", "system");
+    } finally {
+      isFetching = false;
     }
-  }
+  };
 
-  // Handle form submission
-  chatForm.addEventListener("submit", function(e) {
+  // --- Event Listeners ---
+  chatForm.addEventListener("submit", (e) => {
     e.preventDefault();
     const message = userInput.value.trim();
-    if (message === "") return;
+    if (message === "" || isFetching) return;
+
     addMessage(message, "user");
     userInput.value = "";
-    userInput.style.height = "";
+    autoResizeTextarea();
     userInput.focus();
     sendMessage(message);
+
+    gsap.fromTo(
+      ".send-button",
+      { scale: 0.9 },
+      { scale: 1, duration: 0.4, ease: "elastic.out(1, 0.5)" }
+    );
   });
 
-  // Handle suggestion chips
-  suggestionChips.forEach(chip => {
-    chip.addEventListener("click", function() {
-      const query = this.getAttribute("data-query");
-      userInput.value = query;
-      chatForm.dispatchEvent(new Event("submit"));
-    });
-  });
-
-  // Clear chat functionality
-  clearChat.addEventListener("click", function() {
-    while (messagesContainer.children.length > 1) {
-      messagesContainer.removeChild(messagesContainer.lastChild);
-    }
-  });
-
-  // Submit with Enter (Shift+Enter allows new line)
-  userInput.addEventListener("keydown", function(e) {
+  userInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       chatForm.dispatchEvent(new Event("submit"));
     }
   });
 
+  suggestionPills.forEach((pill) => {
+    pill.addEventListener("click", function () {
+      if (isFetching) return;
+      const query = this.getAttribute("data-query");
+      userInput.value = query;
+      autoResizeTextarea();
+      userInput.focus();
+      gsap.fromTo(
+        this,
+        { scale: 0.95 },
+        { scale: 1, duration: 0.3, ease: "back.out(1.7)" }
+      );
+    });
+  });
+
+  clearChatBtn.addEventListener("click", () => {
+    const messagesToRemove = messageStream.querySelectorAll(
+      ".message:not(.initial-system-message)"
+    );
+    if (messagesToRemove.length === 0 || isFetching) return;
+
+    gsap.fromTo(
+      clearChatBtn,
+      { rotation: -360 },
+      { rotation: 0, duration: 0.5, ease: "back.out(1.7)" }
+    );
+
+    gsap.to(messagesToRemove, {
+      opacity: 0,
+      scale: 0.85, // Less drastic scale down
+      y: 25,
+      duration: 0.4,
+      stagger: 0.04, // Slightly faster stagger
+      ease: "power2.in",
+      onComplete: () => {
+        messagesToRemove.forEach((msg) => msg.remove());
+      },
+    });
+  });
+
+  // --- Initialization ---
+  initializeTheme();
+  autoResizeTextarea();
   userInput.focus();
+
+  const initialMessage = document.querySelector(".initial-system-message");
+  if (initialMessage) {
+    gsap.from(initialMessage, {
+      opacity: 0,
+      y: 30,
+      scale: 0.95,
+      delay: 0.3,
+      duration: 0.7,
+      ease: "elastic.out(1, 0.8)",
+    });
+  }
 });
