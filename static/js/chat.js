@@ -15,7 +15,6 @@ document.addEventListener("DOMContentLoaded", function () {
     html.setAttribute("data-theme", newTheme);
     localStorage.setItem("theme", newTheme);
 
-    // Update icon
     const icon = themeToggle.querySelector("i");
     if (newTheme === "dark") {
       icon.classList.remove("fa-moon");
@@ -33,26 +32,27 @@ document.addEventListener("DOMContentLoaded", function () {
     if (savedTheme === "dark") {
       themeToggle.querySelector("i").classList.replace("fa-moon", "fa-sun");
     }
-  } else if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+  } else if (
+    window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+  ) {
     document.documentElement.setAttribute("data-theme", "dark");
     themeToggle.querySelector("i").classList.replace("fa-moon", "fa-sun");
   }
 
-  // Configure marked.js for proper markdown rendering
+  // Configure marked.js for markdown rendering
   marked.setOptions({
     gfm: true,
     breaks: true,
     smartLists: true,
     highlight: function(code, lang) {
-      if (window.hljs && lang && hljs.getLanguage(lang)) {
-        return hljs.highlight(code, { language: lang }).value;
-      }
+      // We do not expect code blocks here.
       return code;
     }
   });
 
-  // Function to safely render markdown
+  // For assistant messages, use marked to convert the markdown text
   function renderMarkdown(content) {
+    // Use marked to parse the markdown into HTML and sanitize it.
     const rawHtml = marked.parse(content);
     return DOMPurify.sanitize(rawHtml);
   }
@@ -68,7 +68,9 @@ document.addEventListener("DOMContentLoaded", function () {
   function addMessage(content, type) {
     const messageDiv = document.createElement("div");
     messageDiv.className = `message ${type}-message`;
-    messageDiv.id = type === "thinking" ? "thinking-message" : null;
+    if (type === "thinking") {
+      messageDiv.id = "thinking-message";
+    }
 
     const messageContent = document.createElement("div");
     messageContent.className = "message-content";
@@ -83,89 +85,58 @@ document.addEventListener("DOMContentLoaded", function () {
         <span>Processing query...</span>
       `;
     } else if (type === "assistant") {
+      // Render markdown; expect our structured list and cards.
       messageContent.innerHTML = renderMarkdown(content);
-
-      // Apply syntax highlighting to code blocks
-      messageContent.querySelectorAll('pre code').forEach((block) => {
-        hljs.highlightElement(block);
-      });
     } else {
       messageContent.textContent = content;
     }
 
     messageDiv.appendChild(messageContent);
     messagesContainer.appendChild(messageDiv);
-
-    // Scroll to the bottom
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
-
     return messageDiv;
   }
 
   // Function to send message to backend
   async function sendMessage(message) {
     try {
-      // Show thinking message
       const thinkingMessage = addMessage("", "thinking");
-
       const response = await fetch("/chat", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: {"Content-Type": "application/json"},
         body: JSON.stringify({ query: message }),
       });
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-
       const data = await response.json();
-
-      // Remove thinking message
       thinkingMessage.remove();
 
       if (data.error) {
-        addMessage(
-          `I couldn't process that query. Error: ${data.error}`,
-          "system"
-        );
+        addMessage(`I couldn't process that query. Error: ${data.error}`, "system");
       } else {
-        // Add the response message
         addMessage(data.response, "assistant");
       }
     } catch (error) {
       console.error("Error:", error);
-
-      // Remove thinking message if it exists
       const thinkingMessage = document.getElementById("thinking-message");
       if (thinkingMessage) {
         thinkingMessage.remove();
       }
-
-      addMessage(
-        "I encountered an error processing your request. Please try again.",
-        "system"
-      );
+      addMessage("I encountered an error processing your request. Please try again.", "system");
     }
   }
 
   // Handle form submission
-  chatForm.addEventListener("submit", function (e) {
+  chatForm.addEventListener("submit", function(e) {
     e.preventDefault();
-
     const message = userInput.value.trim();
     if (message === "") return;
-
-    // Add user message to chat
     addMessage(message, "user");
-
-    // Clear input field and reset height
     userInput.value = "";
     userInput.style.height = "";
     userInput.focus();
-
-    // Send message to backend
     sendMessage(message);
   });
 
@@ -174,21 +145,18 @@ document.addEventListener("DOMContentLoaded", function () {
     chip.addEventListener("click", function() {
       const query = this.getAttribute("data-query");
       userInput.value = query;
-
-      // Manually dispatch submit event
       chatForm.dispatchEvent(new Event("submit"));
     });
   });
 
   // Clear chat functionality
   clearChat.addEventListener("click", function() {
-    // Keep only the first welcome message
     while (messagesContainer.children.length > 1) {
       messagesContainer.removeChild(messagesContainer.lastChild);
     }
   });
 
-  // Submit with Enter (allow Shift+Enter for new lines)
+  // Submit with Enter (Shift+Enter allows new line)
   userInput.addEventListener("keydown", function(e) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -196,6 +164,5 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   });
 
-  // Focus input field on load
   userInput.focus();
 });

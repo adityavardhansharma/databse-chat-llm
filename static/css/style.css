@@ -181,6 +181,7 @@ body {
     position: relative;
     background-color: var(--bg);
     transition: background-color var(--transition-normal);
+    padding-bottom: 16px;
 }
 
 .messages-container {
@@ -213,6 +214,31 @@ body {
     transition: background-color var(--transition-normal), color var(--transition-normal);
 }
 
+/* Styling for responses rendered from markdown */
+.assistant-message .message-content {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+}
+
+/* Add custom styles for list rendering (for structured output) */
+.assistant-message .message-content h1,
+.assistant-message .message-content h2,
+.assistant-message .message-content h3 {
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+
+.assistant-message .message-content ul,
+.assistant-message .message-content ol {
+    padding-left: 20px;
+    margin-bottom: 12px;
+}
+
+.assistant-message .message-content li {
+    margin-bottom: 6px;
+}
+
+/* System messages (e.g., errors) */
 .system-message .message-content {
     background-color: var(--primary-bg-light);
     border-left: 3px solid var(--primary);
@@ -230,13 +256,7 @@ body {
     border-radius: var(--radius-lg) var(--radius-lg) 0 var(--radius-lg);
 }
 
-.assistant-message .message-content {
-    background-color: var(--surface);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg) var(--radius-lg) var(--radius-lg) 0;
-}
-
+/* Thinking message */
 .thinking-message .message-content {
     display: flex;
     align-items: center;
