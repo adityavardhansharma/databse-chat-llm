@@ -4,3 +4,4 @@ python-dotenv
 requests
 supabase
 serverless-wsgi==1.7.7
+Werkzeug==2.0.3
