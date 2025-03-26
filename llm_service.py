@@ -38,7 +38,7 @@ def call_groq_api(messages, response_format=None):
     }
 
     payload = {
-        "model": "llama-3.3-70b-versatile",
+        "model": "llama3-8b-8192",
         "messages": messages
     }
 
@@ -56,7 +56,7 @@ def call_groq_api(messages, response_format=None):
 
 def parse_user_query(query):
     """
-    Use Groq's Gemma model to understand the user's intent and extract relevant information.
+    Use Groq's Gemma model to understand the user's intent and extract explicit search criteria.
 
     Args:
         query (str): The user's natural language query.
@@ -66,37 +66,29 @@ def parse_user_query(query):
     """
     try:
         system_prompt = """
-        You are a precise query parser for a user database. Extract ONLY the explicitly mentioned search criteria.
-
-        The database has a table with fields: id, name, age, gender, phone_no, pincode, address.
-
-        Return a JSON object with these fields:
-        {
-            "name": string or null (specific name if searching for an individual),
-            "location": string or null (exact location mentioned, e.g., "Jammu"),
-            "min_age": number or null (minimum age if specified),
-            "max_age": number or null (maximum age if specified),
-            "fields_requested": ["list", "of", "requested", "fields"],
-            "is_all_info": true/false (whether all information is requested)
-        }
-
-        Be literal - only include criteria explicitly stated in the query.
-        Do not infer or assume additional criteria.
-        Your response must be valid JSON only, with no additional text.
+You are a precise query parser for a user database. Extract ONLY the explicitly mentioned search criteria from the query. 
+The database has a table with the following fields:
+id, name, age, gender, phone_no, pincode, address.
+Return a JSON object with these keys:
+{
+  "name": string or null,
+  "location": string or null,
+  "min_age": number or null,
+  "max_age": number or null,
+  "fields_requested": ["list", "of", "requested", "fields"],
+  "is_all_info": true/false
+}
+Be literal — include only criteria explicitly stated.
+Your response must be valid JSON only, with no additional text.
         """
-
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": query}
         ]
-
         response = call_groq_api(messages)
-
-        # Extract the content from the response
         parsed_intent_text = response["choices"][0]["message"]["content"]
         logger.info(f"Raw parsed intent: {parsed_intent_text}")
 
-        # Extract JSON from the response
         try:
             parsed_intent = json.loads(parsed_intent_text)
         except json.JSONDecodeError:
@@ -106,7 +98,6 @@ def parse_user_query(query):
                 parsed_intent = json.loads(json_match.group(1))
             else:
                 raise ValueError("Could not extract valid JSON from LLM response")
-
         logger.info(f"Parsed intent: {parsed_intent}")
         return parsed_intent
     except Exception as e:
@@ -116,62 +107,45 @@ def parse_user_query(query):
 
 def generate_response(query, user_data=None):
     """
-    Generate a natural language response based on the user's query and retrieved data.
+    Generate a natural language response based on the user's query and the retrieved data.
+
+    This function dynamically builds the context using all available fields from the JSON data
+    (which is generated via the Pydantic User model). The system prompt instructs the LLM to analyze
+    the data and decide which details are most relevant—without dictating a rigid format.
 
     Args:
         query (str): The user's natural language query.
-        user_data: The data retrieved from the database (a User object or list of User objects).
+        user_data: The data retrieved from the database (a User object or a list of User objects).
 
     Returns:
-        str: A natural language response.
+        str: A clear and organized response as determined by the LLM.
     """
     try:
-        # Parse the query to understand intent
         parsed_query = parse_user_query(query)
 
-        # Fetch data if not provided and if a name is found
+        # Retrieve data dynamically.
         if user_data is None and parsed_query.get("name"):
             user_data = get_user_by_name(parsed_query["name"])
 
-        # Prepare the context string
+        # Build the context as a raw JSON string for the LLM.
         if user_data is None:
-            context = "No user data found matching the query."
+            context = "No user data found matching your query."
         elif isinstance(user_data, list):
-            context = f"Found {len(user_data)} users matching the query."
-            # Include all users in the context
-            for i, user in enumerate(user_data):
-                context += f"\nUser {i + 1}: {user.model_dump_json()}"
+            context = json.dumps([user.model_dump() for user in user_data], indent=2)
         else:
-            context = f"User data: {user_data.model_dump_json()}"
+            context = json.dumps(user_data.model_dump(), indent=2)
 
+        # Open-ended system prompt:
         system_prompt = """
-        You are a database assistant providing search results to users.
-
-        Follow these rules strictly:
-        1. Be concise and direct - no unnecessary explanations
-        2. Format the response clearly with numbered results if multiple users found
-        3. Only mention the information that was requested
-        4. Do not mention the database structure or implementation details
-        5. Do not add commentary about the search process
-        6. Present only factual information from the results
-        7. Use a professional, neutral tone
-
-        For multiple results, use this format:
-        "Found X users matching your criteria:
-        1. [Name]: [relevant details]
-        2. [Name]: [relevant details]"
-
-        For a single result, use this format:
-        "[Name]: [relevant details]"
-
-        When showing age-related results, be precise and factual without unnecessary commentary.
+You are a helpful database assistant. You are provided with a query and raw user data in JSON format (which conforms to the Pydantic User model). 
+Analyze the user data, decide which details are most relevant to answer the query, and then produce a clear, organized, and human-friendly response.
+Do not simply echo the raw JSON. Instead, format the answer using headings, bullet points, numbered lists, or any structure you deem appropriate.
+Keep your answer concise, factual, and professional.
         """
-
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Query: {query}\nContext: {context}"}
+            {"role": "user", "content": f"Query: {query}\nUser Data:\n{context}"}
         ]
-
         response = call_groq_api(messages)
         return response["choices"][0]["message"]["content"]
     except Exception as e:
@@ -181,27 +155,22 @@ def generate_response(query, user_data=None):
 
 def process_user_query(query):
     """
-    Process a user query by understanding intent, retrieving data, and generating a response.
+    Process a user query by understanding the query, retrieving data based on it, and generating a response.
 
     Args:
         query (str): The user's natural language query.
 
     Returns:
-        str: A natural language response.
+        str: The assistant's response.
     """
     try:
         parsed_query = parse_user_query(query)
-
-        # Retrieve data based on parsed query
         if parsed_query.get("name"):
             user_data = get_user_by_name(parsed_query["name"])
             if user_data is None:
                 return f"I couldn't find anyone named {parsed_query['name']} in the database."
         else:
-            # If no specific name is given, return all users (or use criteria with search_users)
             user_data = get_all_users()
-
-        # Generate and return the response
         return generate_response(query, user_data)
     except Exception as e:
         logger.error(f"Error processing user query: {str(e)}")
