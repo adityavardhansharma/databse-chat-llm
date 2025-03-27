@@ -23,14 +23,16 @@ document.addEventListener("DOMContentLoaded", function () {
       const tempDiv = document.createElement("div");
       tempDiv.style.position = "fixed";
       tempDiv.style.inset = "0";
-      tempDiv.style.backgroundColor =
-        oldTheme === "dark" ? "var(--bg-dark)" : "var(--bg-light)"; // Use CSS vars
+      // Use CSS variables for background - requires them to be defined globally or fetched
+      // For simplicity, hardcoding colors matching the gradient start/end might be safer if vars aren't global
+      tempDiv.style.background =
+        oldTheme === "dark" ? "#161b22" : "#f8f9fa"; // Match gradient start
       tempDiv.style.zIndex = "-1";
       document.body.appendChild(tempDiv);
 
       gsap.to(tempDiv, {
         opacity: 0,
-        duration: 0.6,
+        duration: 0.6, // Keep duration reasonable
         ease: "power1.inOut",
         onComplete: () => tempDiv.remove(),
       });
@@ -41,7 +43,7 @@ document.addEventListener("DOMContentLoaded", function () {
         { scale: 0.95 }, // Subtle scale
         {
           scale: 1,
-          duration: 0.4, // Faster than original icon rotation
+          duration: 0.4,
           ease: "back.out(1.7)",
         }
       );
@@ -78,7 +80,7 @@ document.addEventListener("DOMContentLoaded", function () {
   const autoResizeTextarea = () => {
     userInput.style.height = "auto";
     const scrollHeight = userInput.scrollHeight;
-    const maxHeight = parseInt(getComputedStyle(userInput).maxHeight, 10) || 120; // Match CSS
+    const maxHeight = parseInt(getComputedStyle(userInput).maxHeight, 10) || 125; // Match CSS
     userInput.style.height = `${Math.min(scrollHeight, maxHeight)}px`;
   };
   userInput.addEventListener("input", autoResizeTextarea);
@@ -87,7 +89,7 @@ document.addEventListener("DOMContentLoaded", function () {
   const scrollToBottom = (delay = 0) => {
     gsap.to(messageStreamWrapper, {
       scrollTop: messageStream.scrollHeight,
-      duration: 0.5,
+      duration: 0.6, // Slightly longer scroll
       delay: delay,
       ease: "power2.out",
     });
@@ -125,8 +127,8 @@ document.addEventListener("DOMContentLoaded", function () {
       return document.querySelector(".initial-system-message");
     }
 
-    const xOffset = type === "user" ? 20 : -20;
-    gsap.set(messageDiv, { opacity: 0, scale: 0.95, x: xOffset, y: 15 }); // Slightly different entry
+    const xOffset = type === "user" ? 25 : -25; // More offset
+    gsap.set(messageDiv, { opacity: 0, scale: 0.9, x: xOffset, y: 20 }); // Start further away
 
     messageStream.appendChild(messageDiv);
 
@@ -135,8 +137,8 @@ document.addEventListener("DOMContentLoaded", function () {
       scale: 1,
       x: 0,
       y: 0,
-      duration: 0.6,
-      ease: "elastic.out(1, 0.8)", // Slightly adjusted ease
+      duration: 0.7, // Longer duration
+      ease: "elastic.out(1, 0.7)", // More elastic
       onComplete: () => {
         scrollToBottom(0.1);
       },
@@ -166,9 +168,9 @@ document.addEventListener("DOMContentLoaded", function () {
           opacity: 0,
           scale: 0.8,
           height: 0,
-          paddingTop: 0, // Animate padding
+          paddingTop: 0,
           paddingBottom: 0,
-          marginTop: 0, // Animate margin
+          marginTop: 0,
           marginBottom: 0,
           duration: 0.4,
           ease: "power1.in",
@@ -209,7 +211,7 @@ document.addEventListener("DOMContentLoaded", function () {
     gsap.fromTo(
       ".send-button",
       { scale: 0.9 },
-      { scale: 1, duration: 0.4, ease: "elastic.out(1, 0.5)" }
+      { scale: 1, duration: 0.5, ease: "elastic.out(1, 0.5)" } // Slightly longer ease
     );
   });
 
@@ -229,8 +231,8 @@ document.addEventListener("DOMContentLoaded", function () {
       userInput.focus();
       gsap.fromTo(
         this,
-        { scale: 0.95 },
-        { scale: 1, duration: 0.3, ease: "back.out(1.7)" }
+        { scale: 0.95, y: 0 },
+        { scale: 1, y: -2, duration: 0.3, ease: "back.out(2)" } // Add y movement
       );
     });
   });
@@ -244,15 +246,15 @@ document.addEventListener("DOMContentLoaded", function () {
     gsap.fromTo(
       clearChatBtn,
       { rotation: -360 },
-      { rotation: 0, duration: 0.5, ease: "back.out(1.7)" }
+      { rotation: 0, duration: 0.6, ease: "back.out(1.5)" } // Slightly slower
     );
 
     gsap.to(messagesToRemove, {
       opacity: 0,
-      scale: 0.85, // Less drastic scale down
-      y: 25,
-      duration: 0.4,
-      stagger: 0.04, // Slightly faster stagger
+      scale: 0.8,
+      y: 30, // Move down more
+      duration: 0.5, // Longer duration
+      stagger: 0.05,
       ease: "power2.in",
       onComplete: () => {
         messagesToRemove.forEach((msg) => msg.remove());
@@ -269,11 +271,11 @@ document.addEventListener("DOMContentLoaded", function () {
   if (initialMessage) {
     gsap.from(initialMessage, {
       opacity: 0,
-      y: 30,
-      scale: 0.95,
-      delay: 0.3,
-      duration: 0.7,
-      ease: "elastic.out(1, 0.8)",
+      y: 40, // Start further down
+      scale: 0.9,
+      delay: 0.4, // Slightly longer delay
+      duration: 0.8, // Longer duration
+      ease: "elastic.out(1, 0.7)",
     });
   }
 });
