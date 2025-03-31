@@ -56,7 +56,7 @@ def call_groq_api(messages, response_format=None):
 
 def parse_user_query(query):
     """
-    Use Groq's Gemma model to understand the user's intent and extract explicit search criteria.
+    Use Groq's Qwen model to understand the user's intent and extract explicit search criteria.
 
     Args:
         query (str): The user's natural language query.
