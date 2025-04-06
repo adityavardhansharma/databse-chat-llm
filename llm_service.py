@@ -1,9 +1,9 @@
 import os
-import requests
 import json
-from dotenv import load_dotenv
 import logging
-from database import get_user_by_name, get_all_users, search_users
+from dotenv import load_dotenv
+from database import get_user_by_name, get_all_users
+from groq import Groq
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -14,11 +14,15 @@ load_dotenv()
 
 # Initialize Groq API credentials
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 if not GROQ_API_KEY:
     logger.error("Groq API key not found in environment variables")
     raise ValueError("Groq API key not found in environment variables")
+
+# Initialize Groq client
+client = Groq(api_key=GROQ_API_KEY)
+
+MODEL_NAME = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 
 def call_groq_api(messages, response_format=None):
@@ -26,29 +30,22 @@ def call_groq_api(messages, response_format=None):
     Call the Groq API with the given messages.
 
     Args:
-        messages (list): List of message objects with role and content.
+        messages (list): List of message dicts with 'role' and 'content'.
         response_format (dict, optional): Format specification for the response.
 
     Returns:
-        dict: The API response.
+        The API response object.
     """
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {GROQ_API_KEY}"
-    }
-
-    payload = {
-        "model": "qwen-2.5-coder-32b",
-        "messages": messages
-    }
-
-    if response_format:
-        payload["response_format"] = response_format
-
     try:
-        response = requests.post(GROQ_API_URL, headers=headers, json=payload)
-        response.raise_for_status()
-        return response.json()
+        params = {
+            "model": MODEL_NAME,
+            "messages": messages
+        }
+        if response_format:
+            params["response_format"] = response_format
+
+        response = client.chat.completions.create(**params)
+        return response
     except Exception as e:
         logger.error(f"Error calling Groq API: {str(e)}")
         raise
@@ -56,50 +53,67 @@ def call_groq_api(messages, response_format=None):
 
 def parse_user_query(query):
     """
-    Use Groq's Qwen model to understand the user's intent and extract explicit search criteria.
+
 
     Args:
         query (str): The user's natural language query.
 
     Returns:
-        dict: A dictionary containing the parsed intent and parameters.
+        dict: Parsed intent and parameters.
     """
     try:
         system_prompt = """
-You are a precise query parser for a user database. Extract ONLY the explicitly mentioned search criteria from the query. 
-The database has a table with the following fields:
-id, name, age, gender, phone_no, pincode, address.
-Return a JSON object with these keys:
+You are a specialized database query parser with one task: extract ONLY explicitly mentioned search criteria.
+
+Database schema: id, name, age, gender, phone_no, pincode, address
+
+OUTPUT REQUIREMENTS:
+- Return ONLY valid JSON with these exact keys:
 {
   "name": string or null,
   "location": string or null,
   "min_age": number or null,
   "max_age": number or null,
-  "fields_requested": ["list", "of", "requested", "fields"],
-  "is_all_info": true/false
+  "fields_requested": ["field1", "field2"],
+  "is_all_info": boolean
 }
-Be literal — include only criteria explicitly stated.
-Your response must be valid JSON only, with no additional text.
-        """
+
+STRICT RULES:
+1. Include ONLY criteria explicitly stated in the query
+2. For age ranges: "over 30" → min_age=31, "under 40" → max_age=39
+3. For location, extract city, state, pincode or any location identifier
+4. Set is_all_info=true only if query asks for "all information" or "everything"
+5. fields_requested should contain specific fields mentioned (name, age, etc.)
+6. DO NOT add explanations or text outside the JSON
+7. DO NOT infer criteria not directly mentioned
+8. If a field isn't mentioned, set it to null
+
+RESPONSE FORMAT: Valid JSON object only, no preamble or explanation.
+"""
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": query}
         ]
-        response = call_groq_api(messages)
-        parsed_intent_text = response["choices"][0]["message"]["content"]
-        logger.info(f"Raw parsed intent: {parsed_intent_text}")
+
+        response_format = {"type": "json_object"}
+        response = call_groq_api(messages, response_format)
+
+        parsed_text = response.choices[0].message.content
+        logger.info(f"Raw parsed intent: {parsed_text}")
 
         try:
-            parsed_intent = json.loads(parsed_intent_text)
+            parsed_intent = json.loads(parsed_text)
         except json.JSONDecodeError:
             import re
-            json_match = re.search(r'({.*})', parsed_intent_text, re.DOTALL)
-            if json_match:
-                parsed_intent = json.loads(json_match.group(1))
+            match = re.search(r'({.*})', parsed_text, re.DOTALL)
+            if match:
+                parsed_intent = json.loads(match.group(1))
             else:
                 raise ValueError("Could not extract valid JSON from LLM response")
+
         logger.info(f"Parsed intent: {parsed_intent}")
         return parsed_intent
+
     except Exception as e:
         logger.error(f"Error parsing user query: {str(e)}")
         raise
@@ -107,47 +121,65 @@ Your response must be valid JSON only, with no additional text.
 
 def generate_response(query, user_data=None):
     """
-    Generate a natural language response based on the user's query and the retrieved data.
-
-    This function dynamically builds the context using all available fields from the JSON data
-    (which is generated via the Pydantic User model). The system prompt instructs the LLM to analyze
-    the data and decide which details are most relevant—without dictating a rigid format.
+    Generate a natural language response based on the query and retrieved data.
 
     Args:
-        query (str): The user's natural language query.
-        user_data: The data retrieved from the database (a User object or a list of User objects).
+        query (str): User's query.
+        user_data: Retrieved user data (User object or list).
 
     Returns:
-        str: A clear and organized response as determined by the LLM.
+        str: Formatted response.
     """
     try:
         parsed_query = parse_user_query(query)
 
-        # Retrieve data dynamically.
         if user_data is None and parsed_query.get("name"):
             user_data = get_user_by_name(parsed_query["name"])
 
-        # Build the context as a raw JSON string for the LLM.
         if user_data is None:
             context = "No user data found matching your query."
         elif isinstance(user_data, list):
-            context = json.dumps([user.model_dump() for user in user_data], indent=2)
+            context = json.dumps(
+                [user.model_dump() for user in user_data], indent=2
+            )
         else:
             context = json.dumps(user_data.model_dump(), indent=2)
 
-        # Open-ended system prompt:
         system_prompt = """
-You are a helpful database assistant. You are provided with a query and raw user data in JSON format (which conforms to the Pydantic User model). 
-Analyze the user data, decide which details are most relevant to answer the query, and then produce a clear, organized, and human-friendly response.
-Do not simply echo the raw JSON. Instead, format the answer using headings, bullet points, numbered lists, or any structure you deem appropriate.
-Keep your answer concise, factual, and professional. Format data based on what you think is the best way to show the data
-        """
+You are an expert database assistant presenting user information. Your goal is to transform raw data into clear, concise, and well-structured responses.
+
+CONTEXT:
+- You're working with a user database containing: id, name, age, gender, phone_no, pincode, address
+- You'll receive a user query and JSON data from the database
+- The user wants specific information presented in a readable format
+
+RESPONSE GUIDELINES:
+1. ANALYZE the query to understand what information is being requested
+2. FOCUS on the specific data points relevant to the query
+3. STRUCTURE your response with appropriate formatting:
+   - Use headings for different users or data categories
+   - Use bullet points for listing multiple attributes
+   - Use tables for comparing multiple users (if applicable)
+4. HIGHLIGHT key information that directly answers the query
+5. SUMMARIZE when dealing with multiple users (e.g., "Found 5 users matching your criteria")
+6. ADAPT your formatting based on the amount and type of data
+7. BE CONCISE - avoid unnecessary explanations about the data structure
+8. USE NATURAL LANGUAGE - transform field names into readable sentences
+
+TONE: Professional, helpful, and direct. Prioritize clarity and readability.
+"""
+
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Query: {query}\nUser Data:\n{context}"}
+            {
+                "role": "user",
+                "content": f"Query: {query}\nUser Data:\n{context}"
+            }
         ]
+
         response = call_groq_api(messages)
-        return response["choices"][0]["message"]["content"]
+        return response.choices[0].message.content
+
     except Exception as e:
         logger.error(f"Error generating response: {str(e)}")
         return "I'm sorry, but I encountered an error while processing your request. Please try again later."
@@ -155,23 +187,29 @@ Keep your answer concise, factual, and professional. Format data based on what y
 
 def process_user_query(query):
     """
-    Process a user query by understanding the query, retrieving data based on it, and generating a response.
+    Process a user query end-to-end.
 
     Args:
-        query (str): The user's natural language query.
+        query (str): User's query.
 
     Returns:
-        str: The assistant's response.
+        str: Assistant's response.
     """
     try:
         parsed_query = parse_user_query(query)
+
         if parsed_query.get("name"):
             user_data = get_user_by_name(parsed_query["name"])
             if user_data is None:
-                return f"I couldn't find anyone named {parsed_query['name']} in the database."
+                return (
+                    f"I couldn't find anyone named {parsed_query['name']} "
+                    "in the database."
+                )
         else:
             user_data = get_all_users()
+
         return generate_response(query, user_data)
+
     except Exception as e:
         logger.error(f"Error processing user query: {str(e)}")
         return "I'm sorry, but I encountered an error while processing your request. Please try again later."
