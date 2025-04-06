@@ -53,7 +53,7 @@ def call_groq_api(messages, response_format=None):
 
 def parse_user_query(query):
     """
-    Use Llama to extract explicit search criteria from the user's query.
+
 
     Args:
         query (str): The user's natural language query.

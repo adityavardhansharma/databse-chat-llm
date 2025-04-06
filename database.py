@@ -30,7 +30,7 @@ except Exception as e:
 def get_user_by_name(name):
 
     try:
-        response = supabase.table("llmdata").select("*").eq("name", name).execute()
+        response = supabase.table("table_name").select("*").eq("name", name).execute()
 
         if response.data and len(response.data) > 0:
             user_data = response.data[0]
@@ -44,7 +44,7 @@ def get_user_by_name(name):
 def get_all_users():
 
     try:
-        response = supabase.table("llmdata").select("*").execute()
+        response = supabase.table("table_name").select("*").execute()
 
         if response.data:
             return [User(**user_data) for user_data in response.data]
@@ -57,7 +57,7 @@ def get_all_users():
 def search_users(query_params):
 
     try:
-        query = supabase.table("llmdata").select("*")
+        query = supabase.table("table_name").select("*")
 
         for field, value in query_params.items():
             query = query.eq(field, value)
