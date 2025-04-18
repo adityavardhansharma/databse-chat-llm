@@ -38,7 +38,7 @@ def call_groq_api(messages, response_format=None):
     }
 
     payload = {
-        "model": "qwen-2.5-coder-32b",
+        "model": "meta-llama/llama-4-maverick-17b-128e-instruct",
         "messages": messages
     }
 
